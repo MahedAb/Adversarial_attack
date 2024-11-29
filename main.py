@@ -1,22 +1,11 @@
 import torch
 import torch.nn.functional as F
+import torch.nn as nn
 import torchvision.transforms as transforms
 from torchvision.models import resnet18
 from PIL import Image
-import numpy as np
-
-
-def load_image(image_path, target_size=(224, 224)):
-    """
-    Load and preprocess an image.
-    """
-    transform = transforms.Compose([
-        transforms.Resize(target_size),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
-    image = Image.open(image_path).convert('RGB')
-    return transform(image).unsqueeze(0)  # Add batch dimension
+import argparse
+import matplotlib.pyplot as plt
 
 
 # FGSM attack code
@@ -49,10 +38,10 @@ def adversarial_attack(model, image, target_class, epsilon=0.03):
     init_pred = output.max(1, keepdim=True)[1]
     print(f"Initial class is: {init_pred}")
 
-    if init_pred == target:
+    if init_pred == torch.tensor([target_class], dtype=torch.long):
         print("Already in the target class!")
 
-    loss = F.nll_loss(output, target)
+    loss = nn.CrossEntropyLoss()(output, target)
 
     # Zero all existing gradients
     model.zero_grad()
@@ -69,23 +58,92 @@ def adversarial_attack(model, image, target_class, epsilon=0.03):
     return perturbed_image
 
 
+def adversarial_attack_iter(model, image, target_class, epsilon=0.001, max_num_iter=10):
+    """
+    Perform an FGSM adversarial attack to fool the model into classifying the image as the target class. In this function
+    """
+    # Ensure the model is in evaluation mode
+    model.eval()
+
+    # Set the image requires_grad attribute to True for gradient calculation
+    image.requires_grad = True
+
+    # Define the target label
+    target = torch.tensor([target_class], dtype=torch.long)
+
+    output = model(image)
+    init_pred = output.max(1, keepdim=True)[1]
+    print(f"Initial class is: {init_pred}")
+
+    if init_pred == target:
+        print("Already in the target class!")
+        return image
+
+    num_iter = 0
+    while num_iter < max_num_iter:
+        # Forward pass
+        output = model(image)
+
+        loss = F.nll_loss(output, target)
+
+        # Zero all existing gradients
+        model.zero_grad()
+
+        # Backward pass to compute gradients
+        loss.backward()
+
+        # Get the gradients of the image
+        data_grad = image.grad.data
+        # Generate the adversarial example
+        perturbed_image = fgsm_attack(image, epsilon, data_grad)
+
+        curr_output = model(perturbed_image)
+        adv_pred = curr_output.max(1, keepdim=True)[1]
+
+        if adv_pred == target_class:
+            break
+        else:
+            print(f"Iteration {num_iter}")
+            print(f"current class is: {adv_pred}")
+
+        image = perturbed_image.detach()
+        image.requires_grad = True
+        num_iter += 1
+
+    return perturbed_image
+
+
 # Example usage
 if __name__ == "__main__":
     # Load a pretrained model
     model = resnet18(pretrained=True)
 
-    # Load and preprocess an image
-    image_path = "test/image.png"  # Replace with the path to your image
-    image = load_image(image_path)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--method', type=str, default='fgsm', help='one of the two methods')
+    args = parser.parse_args()
 
-    # Define the target class (e.g., 950 for toaster in ImageNet)
-    target_class = 859
+    # Load and preprocess an image
+    img = Image.open('test/panda.png')
+    transform = transforms.ToTensor()
+    img_tensor = transform(img).unsqueeze(0)  # Add batch dimension
+
+    # Define the target class
+    target_class = 100
 
     # Perform adversarial attack
-    epsilon = 0.25  # Perturbation size
-    adv_image = adversarial_attack(model, image, target_class, epsilon)
+    epsilon = 0.01  # Perturbation size
+    if args.method == 'fgsm':
+        adv_image = adversarial_attack(model, img_tensor, target_class, epsilon)
+    elif args.method == 'ifgsm':
+        adv_image = adversarial_attack_iter(model, img_tensor, target_class, epsilon)
+    else:
+        raise ValueError("Invalid method")
 
-    output = model(adv_image)
+    adv_image = adv_image.squeeze(0).permute(1, 2, 0).detach().numpy()
+    plt.imsave("output/output_image.png", adv_image)
+
+    # adv_image_norm = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])(adv_image)
+    output = model(transform(adv_image).unsqueeze(0))
     final_pred = output.max(1, keepdim=True)[1]
 
     if final_pred == target_class:
@@ -93,10 +151,3 @@ if __name__ == "__main__":
     else:
         print(f"Purturbed image classified as: {final_pred}")
 
-
-    # Save or visualize the adversarial image
-    adv_image_np = adv_image.squeeze().detach().cpu().numpy()
-    adv_image_np = np.transpose(adv_image_np, (1, 2, 0))  # Convert to HWC
-    adv_image_np = (adv_image_np * 255).astype(np.uint8)  # Convert to uint8
-    adv_image_pil = Image.fromarray(adv_image_np)
-    adv_image_pil.save("output/adversarial_image.png")  # Save the adversarial image
