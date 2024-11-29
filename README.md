@@ -8,8 +8,8 @@ https://christophm.github.io/interpretable-ml-book/adversarial.html.
 The required dependencies can be found in requirements.txt. 
 Run the main.py, make sure the image path in the main.py is correct and the desired
 target class and epsilon are selected. 
-The method can be selected between two methods: FGSM and iterative-FGSM by passing the method argument.
-The default is fgsm. Use "--method ifgsm" for the other method.
+Two methods, FGSM and iterative-FGSM are implemented which can be selected by passing the method argument.
+The default is fgsm, use "--method ifgsm" for iterative-FGSM.
 
 ### Things that can be improved:
 
