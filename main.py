@@ -50,7 +50,7 @@ def adversarial_attack(model, image, target_class, epsilon=0.03):
     loss.backward()
 
     # Get the gradients of the image
-    data_grad = image.grad.data
+    data_grad = -image.grad.data
 
     # Generate the adversarial example
     perturbed_image = fgsm_attack(image, epsilon, data_grad)
@@ -84,8 +84,8 @@ def adversarial_attack_iter(model, image, target_class, epsilon=0.001, max_num_i
         # Forward pass
         output = model(image)
 
-        loss = F.nll_loss(output, target)
-
+        loss = nn.CrossEntropyLoss()(output, target)
+        print(f" Loss at this iteration is: {loss}")
         # Zero all existing gradients
         model.zero_grad()
 
@@ -93,7 +93,7 @@ def adversarial_attack_iter(model, image, target_class, epsilon=0.001, max_num_i
         loss.backward()
 
         # Get the gradients of the image
-        data_grad = image.grad.data
+        data_grad = -image.grad.data
         # Generate the adversarial example
         perturbed_image = fgsm_attack(image, epsilon, data_grad)
 
@@ -131,7 +131,7 @@ if __name__ == "__main__":
     target_class = 100
 
     # Perform adversarial attack
-    epsilon = 0.01  # Perturbation size
+    epsilon = 0.005  # Perturbation size
     if args.method == 'fgsm':
         adv_image = adversarial_attack(model, img_tensor, target_class, epsilon)
     elif args.method == 'ifgsm':
